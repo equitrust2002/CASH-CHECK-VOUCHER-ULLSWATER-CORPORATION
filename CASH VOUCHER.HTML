@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ullswater Pro | Hybrid Voucher System</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <style>
+        :root { 
+            --primary: #1a1a1a; 
+            --cash-accent: #008f39; 
+            --check-accent: #0056b3; 
+            --current: #008f39; 
+        }
+        
+        body { font-family: 'Inter', -apple-system, sans-serif; background: #dfe4ea; padding: 40px; margin: 0; }
+        
+        /* The Voucher Sheet */
+        .container { 
+            width: 210mm; min-height: 145mm; background: white; 
+            margin: 0 auto; padding: 50px; box-sizing: border-box; 
+            border: 4px solid var(--primary); position: relative; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+
+        /* Type Selection Dropdown */
+        .type-header { position: absolute; top: 20px; right: 50px; display: flex; align-items: center; gap: 10px; }
+        .v-select { 
+            padding: 8px 12px; border: 2px solid var(--primary); font-weight: 900; 
+            cursor: pointer; background: #fff; text-transform: uppercase; font-size: 12px;
+        }
+
+        /* Editable Headers */
+        .editable { outline: none; border-radius: 3px; padding: 2px 5px; transition: 0.2s; }
+        .editable:hover { background: #fff9c4; cursor: edit; }
+        .editable:focus { background: #fff; border: 1px dashed var(--primary); }
+
+        .header { display: flex; justify-content: space-between; border-bottom: 8px solid var(--primary); padding-bottom: 15px; margin-bottom: 25px; }
+        .brand h1 { margin: 0; font-size: 30px; color: var(--primary); font-weight: 900; letter-spacing: -1px; }
+        .brand p { margin: 5px 0 0 0; font-size: 11px; color: #444; font-weight: 500; line-height: 1.5; }
+        
+        .cv-meta { text-align: right; }
+        .cv-title { font-size: 32px; font-weight: 900; color: var(--current); margin: 0; letter-spacing: -1px; }
+        .cv-number { font-size: 18px; color: #000; font-weight: 700; background: #eee; padding: 2px 10px; display: inline-block; margin-top: 5px; }
+
+        /* Form Grid */
+        .grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 30px; margin-bottom: 20px; }
+        .row { border-bottom: 2px solid #000; padding: 10px 0; display: flex; align-items: flex-start; }
+        .label { font-size: 10px; font-weight: 900; text-transform: uppercase; width: 110px; color: #000; margin-top: 5px; }
+        
+        textarea, input[type="text"], input[type="date"] { 
+            border: none; outline: none; font-family: inherit; font-size: 15px; width: 100%; 
+            background: transparent; text-transform: uppercase; resize: none; overflow: hidden;
+            font-weight: 600; color: #222;
+        }
+
+        /* Table */
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; border: 2px solid #000; }
+        th { background: var(--primary); color: white; padding: 12px; font-size: 11px; text-transform: uppercase; text-align: left; letter-spacing: 1px; }
+        td { border: 2px solid #000; padding: 15px; vertical-align: top; }
+
+        /* Amount Logic */
+        .amount-wrap { display: grid; grid-template-columns: 2fr 1fr; gap: 0; border: 4px solid var(--current); margin-top: 20px; }
+        .words { padding: 15px; background: #f9f9f9; font-size: 12px; font-weight: 800; text-transform: uppercase; border-right: 2px solid var(--current); display: flex; align-items: center; }
+        .num { padding: 15px; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 900; color: var(--current); }
+
+        /* Footer & QR */
+        .footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 40px; }
+        .sigs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; flex-grow: 1; }
+        .sig-box { text-align: center; }
+        .sig-line { border-top: 2px solid #000; padding-top: 8px; font-size: 11px; font-weight: 900; }
+        
+        #qrcode { padding: 10px; border: 1px solid #ddd; background: #fff; margin-left: 30px; }
+
+        /* Buttons */
+        .controls { position: fixed; top: 40px; right: 40px; display: flex; flex-direction: column; gap: 15px; }
+        .btn { padding: 15px 25px; border: none; cursor: pointer; font-weight: 900; color: white; border-radius: 8px; transition: 0.3s; text-transform: uppercase; font-size: 13px; }
+        .btn-print { background: var(--current); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .btn-reset { background: #636e72; }
+        .btn:hover { transform: scale(1.05); filter: brightness(1.1); }
+
+        @media print { 
+            body { background: white; padding: 0; }
+            .container { border: 4px solid #000; width: 100%; margin: 0; box-shadow: none; padding: 30px; }
+            .no-print, .controls, .type-header { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="type-header no-print">
+    <label style="font-weight: 900; font-size: 11px;">MODE:</label>
+    <select class="v-select" id="typeSelector" onchange="toggleVoucher()">
+        <option value="CASH">Cash Voucher</option>
+        <option value="CHECK">Check Voucher</option>
+    </select>
+</div>
+
+<div class="container" id="printableVoucher">
+    <div class="header">
+        <div class="brand">
+            <h1 id="coName" class="editable" contenteditable="true" onblur="saveHeader()">ULLSWATER CORPORATION</h1>
+            <p id="coAddr" class="editable" contenteditable="true" onblur="saveHeader()">Unit 1234, Business Tower, Ayala Avenue, Makati City<br>Tel: (02) 8888-9999 | finance@ullswater.com</p>
+        </div>
+        <div class="cv-meta">
+            <p class="cv-title" id="vTitle">CASH VOUCHER</p>
+            <div class="cv-number" id="vID">CV-2026-0001</div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div>
+            <div class="row"><span class="label">Pay To:</span><textarea id="payee" rows="1" oninput="sync(this)"></textarea></div>
+            <div class="row" style="margin-top:10px;"><span class="label">Particulars:</span><textarea id="particulars" rows="1" oninput="sync(this)"></textarea></div>
+        </div>
+        <div>
+            <div class="row"><span class="label">Date:</span><input type="date" id="vDate" oninput="sync()"></div>
+            <div class="row" style="margin-top:10px;"><span class="label" id="refLabel">Ref/Cash #:</span><input type="text" id="ref" oninput="sync()"></div>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th width="70%">Account Category / Description</th>
+                <th width="30%">Amount (PHP)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><textarea id="account" rows="2" placeholder="ENTRY CLASSIFICATION..." oninput="sync(this)"></textarea></td>
+                <td><input type="number" id="amount" style="text-align: right; font-size: 20px;" placeholder="0.00" oninput="calc()"></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="amount-wrap">
+        <div class="words" id="words">Zero Pesos Only</div>
+        <div class="num" id="dispAmt">₱ 0.00</div>
+    </div>
+
+    <div class="footer">
+        <div class="sigs">
+            <div class="sig-box"><div class="sig-line">PREPARED BY</div></div>
+            <div class="sig-box"><div class="sig-line">APPROVED BY</div></div>
+            <div class="sig-box"><div class="sig-line">RECEIVED BY</div></div>
+        </div>
+        <div id="qrcode"></div>
+    </div>
+</div>
+
+<div class="controls no-print">
+    <button class="btn btn-print" onclick="finalize()">Print & Export</button>
+    <button class="btn btn-reset" onclick="resetCounter()">Reset Number</button>
+</div>
+
+<script>
+    // --- 1. QR Core (EXACT MIRROR) ---
+    function updateQR() {
+        const data = {
+            TYPE: document.getElementById('typeSelector').value,
+            ID: document.getElementById('vID').innerText,
+            DATE: document.getElementById('vDate').value,
+            TO: document.getElementById('payee').value.trim(),
+            AMT: document.getElementById('amount').value || "0.00",
+            DESC: document.getElementById('particulars').value.trim(),
+            ACCT: document.getElementById('account').value.trim(),
+            CORP: document.getElementById('coName').innerText.trim()
+        };
+
+        // Compact Structured Data String
+        const qrString = `[${data.TYPE}]\nID: ${data.ID}\nDT: ${data.DATE}\nTO: ${data.TO}\nPHP: ${data.AMT}\nDESC: ${data.DESC}\nACCT: ${data.ACCT}\nBY: ${data.CORP}`;
+
+        const qrTarget = document.getElementById("qrcode");
+        qrTarget.innerHTML = "";
+        new QRCode(qrTarget, {
+            text: qrString,
+            width: 130,
+            height: 130,
+            correctLevel: QRCode.CorrectLevel.M
+        });
+    }
+
+    // --- 2. Number to Words ---
+    function toWords(num) {
+        if (num == 0) return 'Zero Pesos Only';
+        const a = ['','One ','Two ','Three ','Four ','Five ','Six ','Seven ','Eight ','Nine ','Ten ','Eleven ','Twelve ','Thirteen ','Fourteen ','Fifteen ','Sixteen ','Seventeen ','Eighteen ','Nineteen '];
+        const b = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+        const g = (n) => {
+            let s = '';
+            if (n >= 100) { s += a[Math.floor(n/100)] + 'Hundred '; n %= 100; }
+            if (n >= 20) { s += b[Math.floor(n/10)] + ' ' + a[n%10]; } else { s += a[n]; }
+            return s;
+        };
+        let r = '', p = [{l:'Trillion ',v:Math.floor(num/1e12)},{l:'Billion ',v:Math.floor((num%1e12)/1e9)},{l:'Million ',v:Math.floor((num%1e9)/1e6)},{l:'Thousand ',v:Math.floor((num%1e6)/1e3)},{l:'',v:Math.floor(num%1e3)}];
+        p.forEach(x => { if(x.v > 0) r += g(x.v) + x.l; });
+        let c = Math.round((num % 1) * 100);
+        return r.trim() + (c > 0 ? ` and ${c}/100` : "") + " Pesos Only";
+    }
+
+    // --- 3. UI Logic ---
+    function toggleVoucher() {
+        const type = document.getElementById('typeSelector').value;
+        const root = document.documentElement;
+        document.getElementById('vTitle').innerText = type + ' VOUCHER';
+        document.getElementById('refLabel').innerText = (type === 'CASH' ? 'Ref/Cash #:' : 'Check/Bank #:');
+        root.style.setProperty('--current', type === 'CASH' ? 'var(--cash-accent)' : 'var(--check-accent)');
+        sync();
+    }
+
+    function sync(el) {
+        if(el && el.tagName === 'TEXTAREA') {
+            el.style.height = "auto";
+            el.style.height = el.scrollHeight + "px";
+        }
+        const data = { type: document.getElementById('typeSelector').value };
+        document.querySelectorAll('input, textarea').forEach(i => data[i.id] = i.value);
+        localStorage.setItem('cv_draft', JSON.stringify(data));
+        updateQR();
+    }
+
+    function calc() {
+        let val = parseFloat(document.getElementById('amount').value) || 0;
+        document.getElementById('dispAmt').innerText = "₱ " + val.toLocaleString(undefined, {minimumFractionDigits: 2});
+        document.getElementById('words').innerText = toWords(val);
+        sync();
+    }
+
+    function saveHeader() {
+        localStorage.setItem('cv_header', JSON.stringify({
+            n: document.getElementById('coName').innerHTML,
+            a: document.getElementById('coAddr').innerHTML
+        }));
+        updateQR();
+    }
+
+    function finalize() {
+        if(!document.getElementById('payee').value) return alert("Payee required!");
+        const type = document.getElementById('typeSelector').value;
+        const id = document.getElementById('vID').innerText;
+        
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([
+            ["Type", "ID", "Date", "Payee", "Amount", "Description"],
+            [type, id, document.getElementById('vDate').value, document.getElementById('payee').value, document.getElementById('amount').value, document.getElementById('particulars').value]
+        ]);
+        XLSX.utils.book_append_sheet(wb, ws, "Log");
+        XLSX.writeFile(wb, `${type}_${id}.xlsx`);
+
+        window.print();
+        localStorage.setItem('cv_count', parseInt(localStorage.getItem('cv_count') || 1) + 1);
+        localStorage.removeItem('cv_draft');
+        location.reload();
+    }
+
+    function resetCounter() {
+        if(confirm("Reset counter?")) { localStorage.setItem('cv_count', 1); location.reload(); }
+    }
+
+    window.onload = () => {
+        // Headers
+        const h = JSON.parse(localStorage.getItem('cv_header') || '{}');
+        if(h.n) document.getElementById('coName').innerHTML = h.n;
+        if(h.a) document.getElementById('coAddr').innerHTML = h.a;
+
+        // Counter
+        let c = localStorage.getItem('cv_count') || 1;
+        document.getElementById('vID').innerText = "CV-2026-" + c.toString().padStart(4, '0');
+        document.getElementById('vDate').valueAsDate = new Date();
+
+        // Draft
+        const d = JSON.parse(localStorage.getItem('cv_draft') || '{}');
+        if(d.type) { document.getElementById('typeSelector').value = d.type; toggleVoucher(); }
+        for(let key in d) {
+            const el = document.getElementById(key);
+            if(el && key !== 'typeSelector') {
+                el.value = d[key];
+                if(el.tagName === 'TEXTAREA') { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; }
+            }
+        }
+        calc();
+    };
+</script>
+</body>
+</html>
